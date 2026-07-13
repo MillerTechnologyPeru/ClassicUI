@@ -49,3 +49,7 @@ public struct Binding<Value> {
         )
     }
 }
+
+// matches SwiftUI's conditional conformance, so bindings can travel into
+// @Sendable .task closures; the host app serializes actual writes
+extension Binding: @unchecked Sendable where Value: Sendable { }

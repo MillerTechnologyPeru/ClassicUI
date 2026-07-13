@@ -8,11 +8,61 @@
 //  properties to the screen's persisted storage.
 //
 
-/// A fully resolved screen: a status bar title plus selectable rows.
+/// A fully resolved screen: a status bar title plus its content.
 internal struct ResolvedScreen {
 
+    enum Content {
+        /// A menu of selectable rows (`List`).
+        case menu([ResolvedRow])
+        /// A scrollable page of wrapped text (a bare `Text` screen,
+        /// like iPod Notes).
+        case text(String)
+        /// Non-interactive stacked content (a `VStack` screen, like
+        /// Now Playing).
+        case stack([ResolvedRow], alignment: HorizontalAlignment, spacing: Double)
+    }
+
     var title: String?
-    var rows: [ResolvedRow]
+    var content: Content
+
+    /// Screen lifecycle handlers collected from `.onAppear`,
+    /// `.onDisappear` and `.task` modifiers.
+    struct Lifecycle {
+        var onAppear: [() -> Void] = []
+        var onDisappear: [() -> Void] = []
+        var tasks: [(priority: TaskPriority, action: @Sendable () async -> Void)] = []
+    }
+
+    var lifecycle = Lifecycle()
+
+    /// Actions fired once when the screen appears (first render, push,
+    /// or navigating back to it).
+    var onAppear: [() -> Void] { lifecycle.onAppear }
+
+    /// Actions fired when the screen disappears (covered by a push or
+    /// removed by a pop).
+    var onDisappear: [() -> Void] { lifecycle.onDisappear }
+
+    /// Async tasks started on appearance and cancelled on disappearance.
+    var tasks: [(priority: TaskPriority, action: @Sendable () async -> Void)] { lifecycle.tasks }
+
+    init(title: String? = nil, content: Content, lifecycle: Lifecycle = Lifecycle()) {
+        self.title = title
+        self.content = content
+        self.lifecycle = lifecycle
+    }
+
+    init(title: String? = nil, rows: [ResolvedRow], lifecycle: Lifecycle = Lifecycle()) {
+        self.title = title
+        self.content = .menu(rows)
+        self.lifecycle = lifecycle
+    }
+
+    /// Menu rows; empty for text screens.
+    var rows: [ResolvedRow] {
+        if case .menu(let rows) = content { return rows }
+        return []
+    }
 }
 
 /// One selectable menu row.
@@ -32,6 +82,12 @@ internal struct ResolvedRow {
 
     /// Right-aligned value text (e.g. a `Toggle`'s "On"/"Off").
     var detail: String?
+
+    /// Completed fraction of a `ProgressView` row.
+    var progress: Double?
+
+    /// Marks a `Spacer`, used by `HStack` to split leading/trailing text.
+    var isSpacer = false
 
     var isNavigation: Bool {
         if case .navigation = kind { return true }
@@ -80,9 +136,35 @@ internal protocol _TitledView {
     var _titledContent: any View { get }
 }
 
+/// The `.onAppear` modifier wrapper.
+internal protocol _AppearView {
+    var _appearAction: (() -> Void)? { get }
+    var _appearContent: any View { get }
+}
+
+/// The `.onDisappear` modifier wrapper.
+internal protocol _DisappearView {
+    var _disappearAction: (() -> Void)? { get }
+    var _disappearContent: any View { get }
+}
+
+/// The `.task` modifier wrapper.
+internal protocol _TaskModifierView {
+    var _taskPriority: TaskPriority { get }
+    var _taskAction: @Sendable () async -> Void { get }
+    var _taskContent: any View { get }
+}
+
 /// `NavigationStack` container.
 internal protocol _NavigationStackView {
     var _root: any View { get }
+}
+
+/// `VStack` container.
+internal protocol _StackView {
+    var _stackAlignment: HorizontalAlignment { get }
+    var _stackSpacing: Double { get }
+    var _stackContent: any View { get }
 }
 
 // MARK: - Resolver
@@ -102,6 +184,7 @@ internal enum Resolver {
     /// until a `List` is found.
     static func resolveScreen(_ view: any View, storage: StateStorage = StateStorage()) -> ResolvedScreen {
         var title: String?
+        var lifecycle = ResolvedScreen.Lifecycle()
         var current: any View = view
         var context = ResolveContext(storage: storage)
         for _ in 0 ..< maximumDepth {
@@ -112,19 +195,51 @@ internal enum Resolver {
                 if title == nil { title = titled._title }
                 current = titled._titledContent
                 context = context.descending("title")
+            case let appear as _AppearView:
+                if let action = appear._appearAction {
+                    lifecycle.onAppear.append(action)
+                }
+                current = appear._appearContent
+                context = context.descending("appear")
+            case let disappear as _DisappearView:
+                if let action = disappear._disappearAction {
+                    lifecycle.onDisappear.append(action)
+                }
+                current = disappear._disappearContent
+                context = context.descending("disappear")
+            case let task as _TaskModifierView:
+                lifecycle.tasks.append((priority: task._taskPriority, action: task._taskAction))
+                current = task._taskContent
+                context = context.descending("task")
             case let stack as _NavigationStackView:
                 current = stack._root
                 context = context.descending("root")
             case let list as _ListView:
                 var rows = [ResolvedRow]()
                 flattenRows(list._listContent, into: &rows, context: context.descending("list"))
-                return ResolvedScreen(title: title, rows: rows)
+                return ResolvedScreen(title: title, rows: rows, lifecycle: lifecycle)
+            case let text as Text:
+                // a bare Text screen renders as a scrollable page of
+                // wrapped text, like iPod Notes
+                return ResolvedScreen(title: title, content: .text(text.content), lifecycle: lifecycle)
+            case let anyView as AnyView:
+                // unwrap type erasure before deciding the screen kind
+                current = anyView.storage
+                context = context.descending("any")
+            case let stack as _StackView:
+                var rows = [ResolvedRow]()
+                flattenRows(stack._stackContent, into: &rows, context: context.descending("stack"))
+                return ResolvedScreen(
+                    title: title,
+                    content: .stack(rows, alignment: stack._stackAlignment, spacing: stack._stackSpacing),
+                    lifecycle: lifecycle
+                )
             case let rowConvertible as _RowConvertible:
                 // A screen without a List (e.g. a lone Text) still renders
                 // as a menu of its rows.
                 var rows = [ResolvedRow]()
                 rowConvertible._appendRows(to: &rows, context: context)
-                return ResolvedScreen(title: title, rows: rows)
+                return ResolvedScreen(title: title, rows: rows, lifecycle: lifecycle)
             default:
                 context = context.descending("\(type(of: current))")
                 context.storage.install(in: current, path: context.path)
@@ -148,6 +263,13 @@ internal enum Resolver {
         case let titled as _TitledView:
             // row-level navigationTitle has no effect on rows
             flattenRows(titled._titledContent, into: &rows, context: context.descending("title"))
+        case let appear as _AppearView:
+            // row-level onAppear is not supported in v1; unwrap the content
+            flattenRows(appear._appearContent, into: &rows, context: context.descending("appear"))
+        case let disappear as _DisappearView:
+            flattenRows(disappear._disappearContent, into: &rows, context: context.descending("disappear"))
+        case let task as _TaskModifierView:
+            flattenRows(task._taskContent, into: &rows, context: context.descending("task"))
         default:
             let child = context.descending("\(type(of: view))")
             child.storage.install(in: view, path: child.path)
@@ -288,7 +410,97 @@ extension _NavigationTitleView: _TitledView {
     var _titledContent: any View { content }
 }
 
+extension _OnAppearView: _AppearView {
+
+    var _appearAction: (() -> Void)? { action }
+    var _appearContent: any View { content }
+}
+
+extension _OnDisappearView: _DisappearView {
+
+    var _disappearAction: (() -> Void)? { action }
+    var _disappearContent: any View { content }
+}
+
+extension _TaskView: _TaskModifierView {
+
+    var _taskPriority: TaskPriority { priority }
+    var _taskAction: @Sendable () async -> Void { action }
+    var _taskContent: any View { content }
+}
+
 extension NavigationStack: _NavigationStackView {
 
     var _root: any View { root }
+}
+
+extension VStack: _StackView {
+
+    var _stackAlignment: HorizontalAlignment { alignment }
+    var _stackSpacing: Double { Double(spacing ?? 0) }
+    var _stackContent: any View { content }
+}
+
+extension VStack: _RowConvertible {
+
+    // inside a List, a VStack flattens into rows
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        Resolver.flattenRows(content, into: &rows, context: context.descending("stack"))
+    }
+}
+
+extension Spacer: _RowConvertible {
+
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        rows.append(ResolvedRow(text: "", kind: .inert, isSpacer: true))
+    }
+}
+
+extension HStack: _RowConvertible {
+
+    /// An HStack collapses into a single row: content before the first
+    /// `Spacer` is the leading text, content after it the right-aligned
+    /// trailing text. An interactive child (Button, NavigationLink)
+    /// donates its behavior to the row; a `ProgressView` child renders
+    /// the row as a progress bar.
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        var segments = [ResolvedRow]()
+        Resolver.flattenRows(content, into: &segments, context: context.descending("hstack"))
+
+        var leading = [String]()
+        var trailing = [String]()
+        var seenSpacer = false
+        var kind = ResolvedRow.Kind.inert
+        var progress: Double?
+
+        for segment in segments {
+            if segment.isSpacer {
+                seenSpacer = true
+                continue
+            }
+            if let segmentProgress = segment.progress {
+                progress = segmentProgress
+                continue
+            }
+            if case .inert = kind {
+                kind = segment.kind
+            }
+            if !segment.text.isEmpty {
+                if seenSpacer {
+                    trailing.append(segment.text)
+                } else {
+                    leading.append(segment.text)
+                }
+            }
+        }
+
+        rows.append(
+            ResolvedRow(
+                text: leading.joined(separator: " "),
+                kind: kind,
+                detail: trailing.isEmpty ? nil : trailing.joined(separator: " "),
+                progress: progress
+            )
+        )
+    }
 }

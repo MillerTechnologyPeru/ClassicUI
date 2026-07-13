@@ -60,6 +60,10 @@ internal protocol _AnyStateBox: AnyObject {
 
     /// Redirects reads and writes to a persisted box of the same value type.
     func _link(to box: AnyObject)
+
+    /// Called after every write to the persisted value, so async
+    /// mutations (e.g. from `.task`) invalidate the display.
+    func _setOnChange(_ handler: (@Sendable () -> Void)?)
 }
 
 /// Views expose their `State` properties through this protocol via Mirror.
@@ -71,10 +75,16 @@ extension State: _StateProperty {
     var _box: _AnyStateBox { box }
 }
 
+// matches SwiftUI's conditional conformance, so views holding @State can
+// be captured by @Sendable .task closures; the box is only mutated from
+// value writes, which the host app is responsible for serializing
+extension State: @unchecked Sendable where Value: Sendable { }
+
 internal final class StateBox<Value>: _AnyStateBox {
 
     private var stored: Value
     private var target: StateBox<Value>?
+    private var onChange: (@Sendable () -> Void)?
 
     init(_ value: Value) {
         self.stored = value
@@ -87,6 +97,7 @@ internal final class StateBox<Value>: _AnyStateBox {
                 target.value = newValue
             } else {
                 stored = newValue
+                onChange?()
             }
         }
     }
@@ -95,6 +106,10 @@ internal final class StateBox<Value>: _AnyStateBox {
         guard box !== self, let box = box as? StateBox<Value> else { return }
         target = box
     }
+
+    func _setOnChange(_ handler: (@Sendable () -> Void)?) {
+        onChange = handler
+    }
 }
 
 /// Per-screen storage of state boxes, keyed by structural identity.
@@ -102,6 +117,10 @@ internal final class StateBox<Value>: _AnyStateBox {
 internal final class StateStorage {
 
     private var boxes: [String: _AnyStateBox] = [:]
+
+    /// Invalidation hook fired after every state write; the runtime uses
+    /// it to redraw the screen (including writes from async `.task`s).
+    var onChange: (@Sendable () -> Void)?
 
     init() { }
 
@@ -119,6 +138,7 @@ internal final class StateStorage {
                 }
             } else {
                 boxes[key] = property._box
+                property._box._setOnChange(onChange)
             }
             index += 1
         }

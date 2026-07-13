@@ -7,15 +7,35 @@
 //  when navigating back with the Menu button).
 //
 
+/// Holds the running `.task` handles of one screen.
+internal final class TaskStorage {
+
+    private var tasks: [Task<Void, Never>] = []
+
+    func add(_ task: Task<Void, Never>) {
+        tasks.append(task)
+    }
+
+    func cancelAll() {
+        tasks.forEach { $0.cancel() }
+        tasks.removeAll()
+    }
+}
+
 internal struct NavigationModel {
 
     struct Entry {
         var view: any View
         var selection: Int = 0
         var scrollOffset: Int = 0
+        /// Whether `.onAppear` actions have fired for the current
+        /// appearance; reset when the screen is revealed again by a pop.
+        var hasAppeared = false
         /// @State storage for views resolved within this screen; discarded
         /// when the screen is popped, like SwiftUI.
         let stateStorage = StateStorage()
+        /// Running `.task` modifiers, cancelled when the screen disappears.
+        let taskStorage = TaskStorage()
     }
 
     private(set) var stack: [Entry]
@@ -64,7 +84,13 @@ internal struct NavigationModel {
     mutating func pop() -> Bool {
         guard stack.count > 1 else { return false }
         stack.removeLast()
+        // the revealed screen appears again, like SwiftUI's NavigationStack
+        stack[stack.count - 1].hasAppeared = false
         return true
+    }
+
+    mutating func markTopAppeared() {
+        stack[stack.count - 1].hasAppeared = true
     }
 
     /// Scroll window so the selection is always visible and the offset never

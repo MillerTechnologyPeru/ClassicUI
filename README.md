@@ -29,7 +29,7 @@ struct MainMenu: View {
 Only the bootstrap is ClassicUI-specific:
 
 ```swift
-let app = ClassicApp {
+let app = SDL3Renderer {
     NavigationStack { MainMenu() }
 }
 app.onClickWheel = { event in
@@ -42,10 +42,28 @@ try app.run()
 
 `View`, `@ViewBuilder` (including `if`/`else` and optionals), `List`
 (content and data-driven initializers), `NavigationStack`, `NavigationLink`,
-`Button`, `Text`, `Toggle`, `ForEach` (`Identifiable`, `id:` key path, and
-ranges), `EmptyView`, `AnyView`, `.navigationTitle(_:)`, and state management
-with `@State` and `@Binding` (including `Binding.constant`, `init(get:set:)`,
-and key-path bindings via dynamic member lookup).
+`Button`, `Text`, `Toggle`, `VStack(alignment:spacing:)` (pushed as a screen
+it renders non-interactive stacked content with no selection bar — how
+Now Playing screens are built; inside a `List` it flattens into rows),
+`HStack(alignment:spacing:)` and `Spacer` (an `HStack` collapses into one
+row: content before a `Spacer` is leading, after it right-aligned — the
+`Text / Spacer / Text` value-row idiom; an interactive child donates its
+behavior to the row), `ProgressView(value:total:)`, `ForEach`
+(`Identifiable`, `id:` key path, and ranges), `EmptyView`, `AnyView`,
+`.navigationTitle(_:)`, `.onAppear(perform:)` (fires when a screen is first
+rendered, pushed, or revealed again by a pop — use it to start playback when
+a Now Playing screen appears), `.onDisappear(perform:)` (fires when a screen
+is covered by a push or removed by a pop), `.task(priority:_:)` (starts an
+async task on appearance, cancels it on disappearance, restarts on
+reappearance — `@State` writes and `@Observable` mutations from tasks
+re-render the screen), and state management with `@State` and `@Binding`
+(including `Binding.constant`, `init(get:set:)`, and key-path bindings via
+dynamic member lookup).
+
+A **bare `Text` pushed as a screen** (not inside a `List`) renders as a
+scrollable page of word-wrapped text, like the iPod Notes app — the click
+wheel scrolls line by line. A determinate `ProgressView` renders as the
+classic Now Playing progress bar.
 
 `@State` matches SwiftUI semantics: views are value types rebuilt on every
 update, while state is persisted per screen keyed by the view's structural
@@ -54,10 +72,25 @@ same type keep independent state, and popping a screen discards its state.
 `Toggle` renders as an iPod settings row with a right-aligned "On"/"Off"
 value; the center button flips it.
 
+`@Observable` view models are supported: the run loop tracks observable
+reads during body evaluation (via `withObservationTracking`), so mutating a
+view model re-renders the visible screen even without an input event. The
+Observation module ships with the Swift toolchain itself, so this works on
+Linux too — it is not an Apple-only framework.
+
 Navigation behaves like the real device: selecting a `NavigationLink` pushes
-its destination, the Menu button pops, and each screen's selection and scroll
-position are restored when navigating back. Screens are re-resolved on every
+its destination with an ease-out slide from the right (Menu pops with a slide
+from the left; `transitionDuration` configures or disables it), and each
+screen's selection and scroll position are restored when navigating back. Screens are re-resolved on every
 input event, so dynamic content stays fresh.
+
+The UI uses a logical 320×240 coordinate system (the real device screen) as
+its minimum size but renders at the window's native pixel size, Retina
+included: the framebuffer tracks the window and the logical UI scales through
+the Cairo transform, so text and vector chrome stay crisp at any size. The
+layout adapts to any aspect ratio — wider windows get wider rows, taller
+windows show more rows. Navigation slides animate only the content area; the
+status bar stays pinned.
 
 ## Click wheel controls
 
@@ -68,6 +101,19 @@ input event, so dynamic content stays fresh.
 | Escape | Menu (back) |
 | Space | Play/Pause |
 | ← / → | Previous / Next track |
+
+## Package layout
+
+- **ClassicUICore** — the SwiftUI-subset view layer, resolver, navigation
+  model, and Silica/Cairo renderer, exposed through the platform-agnostic
+  `ClassicScreen` controller (framebuffer + click-wheel input). No SDL.
+- **ClassicUI** — the SDL3 presenter (`SDL3Renderer`, built on PureSwift/SDL's `SDL3Swift` bindings); re-exports Core.
+- **ClassicUISpriteKit** — a SpriteKit presenter (`ClassicScene`, an
+  `SKScene`) for Apple platforms; re-exports Core.
+- **ports/Darwin** — a macOS Xcode project hosting `ClassicScene` in an
+  `SKView`, no SDL dependency. Build with
+  `xcodebuild -project ports/Darwin/ClassicUIDarwin.xcodeproj -scheme ClassicUIDarwin`
+  or open it in Xcode.
 
 ## Requirements
 

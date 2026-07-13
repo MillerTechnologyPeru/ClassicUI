@@ -31,7 +31,12 @@ private struct CompatSongsMenu: SwiftUI.View {
     var showsExtras = false
     var body: some SwiftUI.View {
         List {
-            NavigationLink("All Songs") { Text("Songs") }
+            NavigationLink("All Songs") {
+                Text("Songs").onAppear { }
+            }
+            NavigationLink("Now Playing") {
+                CompatNowPlaying()
+            }
             Button("Shuffle Songs") { }
             ForEach(0 ..< 3) { index in
                 Text("Track \(index)")
@@ -46,6 +51,50 @@ private struct CompatSongsMenu: SwiftUI.View {
             }
         }
         .navigationTitle("Songs")
+    }
+}
+
+private struct CompatNowPlaying: SwiftUI.View {
+    var body: some SwiftUI.View {
+        VStack {
+            Text("Track 1")
+            ProgressView(value: 63.0, total: 222.0)
+        }
+        .navigationTitle("Now Playing")
+        .onAppear { }
+        .onDisappear { }
+    }
+}
+
+private struct CompatAsyncMenu: SwiftUI.View {
+    @State private var items: [String] = []
+    var body: some SwiftUI.View {
+        List {
+            ForEach(items, id: \.self) { Text($0) }
+        }
+        .task {
+            items = ["Loaded"]
+        }
+        .task(priority: .background) { }
+    }
+}
+
+private struct CompatStackShapes: SwiftUI.View {
+    var body: some SwiftUI.View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Leading")
+            Text("Aligned")
+            HStack {
+                Text("1:03")
+                Spacer()
+                Text("-2:39")
+            }
+            HStack(alignment: .top, spacing: 2) {
+                Text("Shuffle")
+                Spacer(minLength: 8)
+                Text("Off")
+            }
+        }
     }
 }
 

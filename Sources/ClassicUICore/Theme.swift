@@ -39,7 +39,12 @@ public struct Theme: Sendable {
     public var fontSize: Double = 13
     public var horizontalPadding: Double = 6
 
-    /// Number of fully visible menu rows.
+    /// Line height on wrapped text screens (Notes-style pages).
+    public var textLineHeight: Double = 17
+
+    /// Number of fully visible menu rows at the nominal screen size.
+    /// The renderer computes the actual count from the current window
+    /// aspect ratio (taller windows show more rows).
     public var visibleRows: Int {
         Int((Double(screenHeight) - statusBarHeight) / rowHeight)
     }

@@ -1,5 +1,5 @@
 import Testing
-@testable import ClassicUI
+@testable import ClassicUICore
 
 // MARK: - Binding
 

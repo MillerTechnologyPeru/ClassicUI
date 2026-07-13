@@ -1,5 +1,5 @@
 import Testing
-@testable import ClassicUI
+@testable import ClassicUICore
 
 // MARK: - Helpers
 
@@ -170,8 +170,13 @@ private func rows(@ViewBuilder of content: () -> some View) -> [ResolvedRow] {
             Issue.record("expected navigation row")
             return
         }
+        // a bare Text destination resolves as a text page
         let screen = Resolver.resolveScreen(destination)
-        #expect(screen.rows.map(\.text) == ["Destination"])
+        guard case .text(let content) = screen.content else {
+            Issue.record("expected text page content")
+            return
+        }
+        #expect(content == "Destination")
     }
 
     @Test func customButtonLabelText() {
@@ -250,10 +255,176 @@ private func rows(@ViewBuilder of content: () -> some View) -> [ResolvedRow] {
         #expect(screen.rows.map(\.text) == ["A", "B"])
     }
 
-    @Test func screenWithoutListStillResolves() {
-        let screen = Resolver.resolveScreen(Text("Lonely"))
+    @Test func anyViewWrappedNavigationStackResolves() {
+        // regression: ClassicApp wraps the root in AnyView
+        let root: any View = NavigationStack {
+            List { Text("Root") }.navigationTitle("iPod")
+        }
+        let screen = Resolver.resolveScreen(AnyView(root))
+        #expect(screen.title == "iPod")
+        #expect(screen.rows.map(\.text) == ["Root"])
+    }
+
+    @Test func bareTextScreenBecomesTextPage() {
+        let screen = Resolver.resolveScreen(Text("Call me Ishmael."))
         #expect(screen.title == nil)
-        #expect(screen.rows.map(\.text) == ["Lonely"])
+        guard case .text(let content) = screen.content else {
+            Issue.record("expected text page content")
+            return
+        }
+        #expect(content == "Call me Ishmael.")
+        #expect(screen.rows.isEmpty)
+    }
+
+    @Test func titledTextScreen() {
+        struct Note: View {
+            var body: some View {
+                Text("Some long note").navigationTitle("Notes")
+            }
+        }
+        let screen = Resolver.resolveScreen(Note())
+        #expect(screen.title == "Notes")
+        guard case .text(let content) = screen.content else {
+            Issue.record("expected text page content")
+            return
+        }
+        #expect(content == "Some long note")
+    }
+
+    @Test func vStackScreenBecomesStack() {
+        struct NowPlaying: View {
+            var body: some View {
+                VStack {
+                    Text("Track 1")
+                    ProgressView(value: 0.5)
+                }
+                .navigationTitle("Now Playing")
+            }
+        }
+        let screen = Resolver.resolveScreen(NowPlaying())
+        #expect(screen.title == "Now Playing")
+        guard case .stack(let rows, let alignment, let spacing) = screen.content else {
+            Issue.record("expected stack content")
+            return
+        }
+        #expect(rows.map(\.text) == ["Track 1", ""])
+        #expect(rows[1].progress == 0.5)
+        #expect(alignment == .center)
+        #expect(spacing == 0)
+    }
+
+    @Test func vStackAlignmentAndSpacingCarried() {
+        let screen = Resolver.resolveScreen(
+            VStack(alignment: .leading, spacing: 4) {
+                Text("A")
+            }
+        )
+        guard case .stack(_, let alignment, let spacing) = screen.content else {
+            Issue.record("expected stack content")
+            return
+        }
+        #expect(alignment == .leading)
+        #expect(spacing == 4)
+    }
+
+    @Test func vStackInsideListFlattensToRows() {
+        let screen = Resolver.resolveScreen(
+            List {
+                Text("Header")
+                VStack {
+                    Text("A")
+                    Text("B")
+                }
+            }
+        )
+        #expect(screen.rows.map(\.text) == ["Header", "A", "B"])
+    }
+
+    @Test func hStackSplitsOnSpacer() {
+        let result = rows {
+            HStack {
+                Text("Shuffle")
+                Spacer()
+                Text("Off")
+            }
+        }
+        #expect(result.count == 1)
+        #expect(result[0].text == "Shuffle")
+        #expect(result[0].detail == "Off")
+    }
+
+    @Test func hStackWithoutSpacerJoinsText() {
+        let result = rows {
+            HStack {
+                Text("Daft Punk")
+                Text("—")
+                Text("Discovery")
+            }
+        }
+        #expect(result.count == 1)
+        #expect(result[0].text == "Daft Punk — Discovery")
+        #expect(result[0].detail == nil)
+    }
+
+    @Test func hStackLeadingSpacerRightAligns() {
+        let result = rows {
+            HStack {
+                Spacer()
+                Text("Right")
+            }
+        }
+        #expect(result[0].text == "")
+        #expect(result[0].detail == "Right")
+    }
+
+    @Test func hStackDonatesInteractiveKind() {
+        var fired = false
+        let result = rows {
+            HStack {
+                Button("Play") { fired = true }
+                Spacer()
+                Text("2:11")
+            }
+        }
+        #expect(result[0].text == "Play")
+        #expect(result[0].detail == "2:11")
+        guard case .button(let action) = result[0].kind else {
+            Issue.record("expected button row")
+            return
+        }
+        action()
+        #expect(fired)
+    }
+
+    @Test func hStackCarriesProgress() {
+        let result = rows {
+            HStack {
+                Text("1:03")
+                ProgressView(value: 0.25)
+                Text("-2:39")
+            }
+        }
+        #expect(result.count == 1)
+        #expect(result[0].progress == 0.25)
+    }
+
+    @Test func progressViewRow() {
+        let result = rows {
+            ProgressView(value: 55.5, total: 222.0)
+        }
+        #expect(result.count == 1)
+        #expect(result[0].progress == 0.25)
+        guard case .inert = result[0].kind else {
+            Issue.record("expected inert row")
+            return
+        }
+    }
+
+    @Test func progressViewClampsFraction() {
+        let over = rows { ProgressView(value: 5.0, total: 2.0) }
+        #expect(over[0].progress == 1)
+        let indeterminate = rows { ProgressView(value: Optional<Double>.none) }
+        #expect(indeterminate[0].progress == 0)
     }
 }
 
