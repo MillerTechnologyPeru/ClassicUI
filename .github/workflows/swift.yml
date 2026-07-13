@@ -54,7 +54,11 @@ jobs:
     - name: Build SDL3 from source
       run: |
         git clone --depth 1 --branch release-3.4.12 https://github.com/libsdl-org/SDL.git /tmp/SDL
-        cmake -S /tmp/SDL -B /tmp/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        # X11/Wayland off: the container has partial X headers (via cairo's
+        # dependencies) that trip SDL's configure, and CI only needs the
+        # dummy video driver anyway.
+        cmake -S /tmp/SDL -B /tmp/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          -DSDL_X11=OFF -DSDL_WAYLAND=OFF
         cmake --build /tmp/sdl-build
         cmake --install /tmp/sdl-build --prefix /usr/local
         ldconfig

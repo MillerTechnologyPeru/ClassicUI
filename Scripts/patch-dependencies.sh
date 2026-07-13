@@ -19,7 +19,5 @@ perl -pi -e 's/pkgConfig: "freetype",/pkgConfig: "freetype2",/' \
   Packages/Cairo/Package.swift
 
 swift package edit Silica || true
-perl -pi -e 's/import Darwin\.C\.math/import Darwin/' \
-  Packages/Silica/Sources/Silica/CGContext.swift \
-  Packages/Silica/Sources/Silica/CGImageSourcePNG.swift \
-  Packages/Silica/Sources/Silica/UIKit/UIBezierPath.swift
+find Packages/Silica/Sources -name '*.swift' \
+  -exec perl -pi -e 's/import Darwin\.C\.math/import Darwin/' {} +
