@@ -117,6 +117,21 @@ func fillVerticalGradient(
 // MARK: - Text (see tools/gen_font.py)
 
 /// Draws one run of ASCII bytes; returns the x after the last glyph.
+/// Alpha-blends `color` over `dst` at 8-bit `coverage` (RGB565 channels).
+@inline(__always)
+func blend565(_ dst: UInt16, _ color: UInt16, _ coverage: Int32) -> UInt16 {
+  let dr = Int32((dst >> 11) & 0x1F)
+  let dg = Int32((dst >> 5) & 0x3F)
+  let db = Int32(dst & 0x1F)
+  let sr = Int32((color >> 11) & 0x1F)
+  let sg = Int32((color >> 5) & 0x3F)
+  let sb = Int32(color & 0x1F)
+  let r = dr &+ ((sr &- dr) &* coverage) / 255
+  let g = dg &+ ((sg &- dg) &* coverage) / 255
+  let b = db &+ ((sb &- db) &* coverage) / 255
+  return (UInt16(r) << 11) | (UInt16(g) << 5) | UInt16(b)
+}
+
 @discardableResult
 func drawBytes(
   _ canvas: Canvas, _ bytes: UnsafePointer<UInt8>, _ count: Int32,
@@ -127,17 +142,29 @@ func drawBytes(
   while i < count {
     var code = Int32(bytes[Int(i)])
     if code < fontFirstCode || code > fontLastCode { code = 63 }  // '?'
-    let glyph = Int(code - fontFirstCode)
-    let width = fontGlyphWidths[glyph]
+    let glyph = Int32(code - fontFirstCode)
+    let width = fontGlyphWidths[Int(glyph)]
     if penX &+ width > maxX { break }
-    let rowBase = glyph * Int(fontGlyphHeight)
+    let glyphBase = glyph &* fontGlyphHeight &* fontGlyphRowStride
     var gy: Int32 = 0
     while gy < fontGlyphHeight {
-      let bits = fontGlyphRows[rowBase + Int(gy)]
+      let destY = y &+ gy
+      let rowBase = Int(glyphBase &+ gy &* fontGlyphRowStride)
+      // draw one column past the advance so antialiased right edges
+      // (which spill into the next cell) aren't clipped off
+      let drawWidth = min(width &+ 1, fontGlyphRowStride)
       var gx: Int32 = 0
-      while gx < width {
-        if bits & (1 << UInt16(gx)) != 0 {
-          canvas.set(penX &+ gx, y &+ gy, color)
+      while gx < drawWidth {
+        let coverage = Int32(fontGlyphPixels[rowBase + Int(gx)])
+        if coverage != 0 {
+          let destX = penX &+ gx
+          if destX >= 0, destX < canvas.width, destY >= 0, destY < canvas.height {
+            let index = Int(destY &* canvas.width &+ destX)
+            canvas.pixels[index] =
+              coverage >= 255
+              ? color
+              : blend565(canvas.pixels[index], color, coverage)
+          }
         }
         gx &+= 1
       }

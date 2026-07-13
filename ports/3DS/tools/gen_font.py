@@ -2,9 +2,10 @@
 """gen_font.py -- rasterize the iPod UI font for the 3DS port.
 
 Renders ASCII 32..126 of Helvetica at 13 px (the same face and size the
-desktop Silica renderer resolves) into a 1bpp variable-width glyph table,
-emitted as Swift arrays: one UInt16 bit-row per glyph scanline (bit 0 =
-leftmost pixel). Requires Pillow and a macOS system Helvetica; pass a .ttf
+desktop Silica renderer resolves) into an antialiased 8-bit-coverage
+variable-width glyph table (16 columns per row per glyph), emitted as
+Swift arrays; the renderer alpha-blends each pixel's coverage against the
+destination. Requires Pillow and a macOS system Helvetica; pass a .ttf
 path as argv[2] to use another face.
 
 Usage: gen_font.py <build-dir> [font-path]
@@ -40,20 +41,17 @@ def main():
     height = ascent + descent
 
     widths = []
-    rows = []
+    pixels = []
     for code in range(FIRST, LAST + 1):
         ch = chr(code)
         width = max(1, round(font.getlength(ch)))
         if width > 16:
             raise SystemExit(f"gen_font.py: glyph {code} wider than 16 px")
-        img = Image.new("L", (width + 2, height), 0)
+        img = Image.new("L", (18, height), 0)
         ImageDraw.Draw(img).text((0, 0), ch, font=font, fill=255)
         for y in range(height):
-            bits = 0
-            for x in range(min(width, 16)):
-                if img.getpixel((x, y)) > 96:
-                    bits |= 1 << x
-            rows.append(bits)
+            for x in range(16):
+                pixels.append(img.getpixel((x, y)))
         widths.append(width)
 
     with open(f"{build_dir}/FontAssets.swift", "w") as out:
@@ -62,15 +60,16 @@ def main():
         out.write(f"let fontLastCode: Int32 = {LAST}\n")
         out.write(f"let fontAscent: Int32 = {ascent}\n")
         out.write(f"let fontGlyphHeight: Int32 = {height}\n")
+        out.write("let fontGlyphRowStride: Int32 = 16\n")
         out.write("let fontGlyphWidths: [Int32] = [\n")
         for i in range(0, len(widths), 16):
             out.write("  " + ", ".join(str(w) for w in widths[i:i + 16]) + ",\n")
         out.write("]\n")
-        out.write("// One UInt16 per scanline per glyph (bit 0 = leftmost pixel),\n")
-        out.write("// fontGlyphHeight rows per glyph, glyphs in ASCII order.\n")
-        out.write("let fontGlyphRows: [UInt16] = [\n")
-        for i in range(0, len(rows), 12):
-            out.write("  " + ", ".join(f"0x{r:04X}" for r in rows[i:i + 12]) + ",\n")
+        out.write("// 8-bit antialiased coverage, fontGlyphRowStride columns per\n")
+        out.write("// row, fontGlyphHeight rows per glyph, glyphs in ASCII order.\n")
+        out.write("let fontGlyphPixels: [UInt8] = [\n")
+        for i in range(0, len(pixels), 24):
+            out.write("  " + ",".join(str(p) for p in pixels[i:i + 24]) + ",\n")
         out.write("]\n")
     print(f"gen_font.py: {LAST - FIRST + 1} glyphs, {height} px tall")
 
