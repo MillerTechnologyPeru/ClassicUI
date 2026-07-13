@@ -94,13 +94,17 @@ status bar stays pinned.
 
 ## Click wheel controls
 
-| Input | Click wheel |
-|---|---|
-| ↑ / ↓ or scroll wheel | Rotate wheel |
-| Return | Center button (select) |
-| Escape | Menu (back) |
-| Space | Play/Pause |
-| ← / → | Previous / Next track |
+| Keyboard | Gamepad | Click wheel |
+|---|---|---|
+| ↑ / ↓ or scroll wheel | D-pad up / down | Rotate wheel |
+| Return | A | Center button (select) |
+| Escape | B | Menu (back) |
+| Space | X / Y / Start | Play/Pause |
+| ← / → | D-pad left / right, L / R shoulders | Previous / Next track |
+
+Gamepads work in both presenters: SDL3 (any SDL-recognized controller) and
+SpriteKit (any GameController-framework controller — Xbox, PlayStation,
+Switch Pro, MFi).
 
 ## Package layout
 

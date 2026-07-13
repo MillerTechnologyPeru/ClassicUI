@@ -11,6 +11,9 @@
 import Foundation
 import CoreGraphics
 import SpriteKit
+#if canImport(GameController)
+import GameController
+#endif
 @_exported import ClassicUICore
 
 /// An SKScene presenting the iPod Classic screen.
@@ -42,6 +45,9 @@ public final class ClassicScene: SKScene {
     public override func didMove(to view: SKView) {
         super.didMove(to: view)
         updateResolution()
+        #if canImport(GameController)
+        observeGamepads()
+        #endif
     }
 
     public override func didChangeSize(_ oldSize: CGSize) {
@@ -128,6 +134,56 @@ public final class ClassicScene: SKScene {
         sprite.texture = texture
         sprite.size = size
     }
+
+    // MARK: - Gamepads
+
+    #if canImport(GameController)
+    private var observingGamepads = false
+
+    /// Wires every connected (and future) controller to the click wheel:
+    /// A = select, B = Menu (back), D-pad up/down = wheel, D-pad
+    /// left/right and shoulders = previous/next track, X/Y/Menu button =
+    /// play/pause.
+    private func observeGamepads() {
+        for controller in GCController.controllers() {
+            wire(controller)
+        }
+        guard !observingGamepads else { return }
+        observingGamepads = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(gamepadDidConnect(_:)),
+            name: .GCControllerDidConnect,
+            object: nil
+        )
+    }
+
+    @objc private func gamepadDidConnect(_ notification: Notification) {
+        guard let controller = notification.object as? GCController else { return }
+        wire(controller)
+    }
+
+    private func wire(_ controller: GCController) {
+        guard let gamepad = controller.extendedGamepad else { return }
+        let handle: (ClickWheelEvent) -> (GCControllerButtonInput, Float, Bool) -> Void = { [weak self] event in
+            { _, _, pressed in
+                guard pressed else { return }
+                self?.screen.handle(event)
+            }
+        }
+        gamepad.buttonA.pressedChangedHandler = handle(.select)
+        gamepad.buttonB.pressedChangedHandler = handle(.menu)
+        gamepad.buttonX.pressedChangedHandler = handle(.playPause)
+        gamepad.buttonY.pressedChangedHandler = handle(.playPause)
+        gamepad.buttonMenu.pressedChangedHandler = handle(.playPause)
+        gamepad.dpad.up.pressedChangedHandler = handle(.scrollUp)
+        gamepad.dpad.down.pressedChangedHandler = handle(.scrollDown)
+        gamepad.dpad.left.pressedChangedHandler = handle(.previousTrack)
+        gamepad.dpad.right.pressedChangedHandler = handle(.nextTrack)
+        gamepad.leftShoulder.pressedChangedHandler = handle(.previousTrack)
+        gamepad.rightShoulder.pressedChangedHandler = handle(.nextTrack)
+    }
+    #endif
 
     // MARK: - Input (macOS)
 

@@ -52,6 +52,7 @@ public final class SDL3Renderer {
     private var screen: ClassicScreen?
     private var running = false
     private var wheelAccumulator: Float = 0
+    private var gamepads = [JoystickID: SDLGamepad]()
 
     public init(
         theme: Theme = .classic,
@@ -73,8 +74,11 @@ public final class SDL3Renderer {
     /// - Parameter frameLimit: Render at most this many frames, then return
     ///   (useful for headless smoke tests with `SDL_VIDEO_DRIVER=dummy`).
     public func run(frameLimit: Int? = nil) throws {
-        try SDL.initialize(subSystems: [.video])
-        defer { SDL.quit() }
+        try SDL.initialize(subSystems: [.video, .gamepad])
+        defer {
+            gamepads.removeAll()
+            SDL.quit()
+        }
 
         let window = try SDLWindow(
             title: windowTitle,
@@ -183,8 +187,33 @@ public final class SDL3Renderer {
                 wheelAccumulator += 1
                 screen.handle(.scrollDown)
             }
+        case .gamepadAdded(let joystickID):
+            // opening the gamepad is what makes SDL deliver its events
+            gamepads[joystickID] = try? SDLGamepad(joystickID: joystickID)
+        case .gamepadRemoved(let joystickID):
+            gamepads[joystickID] = nil
+        case .gamepadButtonDown(_, let button):
+            if let wheelEvent = Self.clickWheelEvent(button: button) {
+                screen.handle(wheelEvent)
+            }
         default:
             break
+        }
+    }
+
+    /// Gamepad mapping: A = select, B = Menu (back), D-pad up/down = wheel,
+    /// D-pad left/right and shoulders = previous/next track,
+    /// X/Y/Start = play/pause.
+    private static func clickWheelEvent(button: SDLGamepad.Button) -> ClickWheelEvent? {
+        switch button {
+        case .south: return .select            // A
+        case .east: return .menu               // B
+        case .dpadUp: return .scrollUp
+        case .dpadDown: return .scrollDown
+        case .dpadLeft, .leftShoulder: return .previousTrack
+        case .dpadRight, .rightShoulder: return .nextTrack
+        case .west, .north, .start: return .playPause
+        default: return nil
         }
     }
 
