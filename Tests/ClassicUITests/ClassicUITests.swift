@@ -5,7 +5,7 @@ import Testing
 
 private func rows(@ViewBuilder of content: () -> some View) -> [ResolvedRow] {
     var rows = [ResolvedRow]()
-    Resolver.flattenRows(content(), into: &rows)
+    Resolver.flattenRows(content(), into: &rows, context: ResolveContext())
     return rows
 }
 

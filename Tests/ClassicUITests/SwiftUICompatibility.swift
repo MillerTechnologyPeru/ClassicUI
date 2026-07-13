@@ -56,4 +56,38 @@ private struct CompatRoot: SwiftUI.View {
         }
     }
 }
+
+private struct CompatSettingsMenu: SwiftUI.View {
+    @State private var backlight = false
+    @State private var count = 0
+    var body: some SwiftUI.View {
+        List {
+            Toggle("Backlight", isOn: $backlight)
+            CompatShuffleRow(isOn: $backlight)
+            Button("Count: \(count)") { count += 1 }
+        }
+        .navigationTitle("Settings")
+    }
+}
+
+private struct CompatShuffleRow: SwiftUI.View {
+    @Binding var isOn: Bool
+    var body: some SwiftUI.View {
+        Toggle(isOn: $isOn) { Text("Shuffle") }
+    }
+}
+
+private struct CompatBindingShapes {
+    func exercise() {
+        var flag = false
+        let binding = Binding(get: { flag }, set: { flag = $0 })
+        _ = binding.wrappedValue
+        _ = binding.projectedValue
+        _ = Binding.constant(1)
+        struct Settings { var shuffle = false }
+        var settings = Settings()
+        let settingsBinding = Binding(get: { settings }, set: { settings = $0 })
+        let _: Binding<Bool> = settingsBinding.shuffle
+    }
+}
 #endif

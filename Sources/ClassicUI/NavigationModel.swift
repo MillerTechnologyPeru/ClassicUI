@@ -13,6 +13,9 @@ internal struct NavigationModel {
         var view: any View
         var selection: Int = 0
         var scrollOffset: Int = 0
+        /// @State storage for views resolved within this screen; discarded
+        /// when the screen is popped, like SwiftUI.
+        let stateStorage = StateStorage()
     }
 
     private(set) var stack: [Entry]

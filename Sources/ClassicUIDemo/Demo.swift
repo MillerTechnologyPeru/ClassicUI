@@ -135,13 +135,24 @@ struct ExtrasMenu: View {
 
 struct SettingsMenu: View {
     let player: Player
+
+    // screen-local state: resets when the screen is popped, like SwiftUI
+    @State private var backlight = false
+    @State private var clicks = 0
+
     var body: some View {
         List {
             NavigationLink("About") { AboutMenu() }
-            Button("Shuffle: \(player.shuffle ? "On" : "Off")") {
-                player.shuffle.toggle()
+            // binding into external model state
+            Toggle("Shuffle", isOn: Binding(
+                get: { player.shuffle },
+                set: { player.shuffle = $0 }
+            ))
+            // @State + projected $ binding
+            Toggle("Backlight", isOn: $backlight)
+            if backlight {
+                Button("Clicker: \(clicks)") { clicks += 1 }
             }
-            Button("Repeat: Off") { }
         }
         .navigationTitle("Settings")
     }

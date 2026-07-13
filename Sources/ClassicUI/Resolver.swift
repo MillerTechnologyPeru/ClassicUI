@@ -3,7 +3,9 @@
 //  ClassicUI
 //
 //  Walks a view hierarchy down to primitives and flattens list content
-//  into the rows the iPod renderer understands.
+//  into the rows the iPod renderer understands. Along the way it assigns
+//  each custom view a structural identity path and reconnects its @State
+//  properties to the screen's persisted storage.
 //
 
 /// A fully resolved screen: a status bar title plus selectable rows.
@@ -19,7 +21,7 @@ internal struct ResolvedRow {
     enum Kind {
         /// Non-interactive row (e.g. `Text`); selectable but select is a no-op.
         case inert
-        /// Runs an action on select (`Button`).
+        /// Runs an action on select (`Button`, `Toggle`).
         case button(() -> Void)
         /// Pushes a destination on select (`NavigationLink`).
         case navigation(any View)
@@ -28,9 +30,35 @@ internal struct ResolvedRow {
     var text: String
     var kind: Kind
 
+    /// Right-aligned value text (e.g. a `Toggle`'s "On"/"Off").
+    var detail: String?
+
     var isNavigation: Bool {
         if case .navigation = kind { return true }
         return false
+    }
+}
+
+/// State threaded through a resolve pass: the screen's state storage and
+/// the structural identity path of the view being visited.
+internal struct ResolveContext {
+
+    let storage: StateStorage
+    var path: String
+    var depth: Int
+
+    init(storage: StateStorage = StateStorage(), path: String = "", depth: Int = 0) {
+        self.storage = storage
+        self.path = path
+        self.depth = depth
+    }
+
+    /// Context for a child at a structurally stable position.
+    func descending(_ component: String) -> ResolveContext {
+        var context = self
+        context.path += "/" + component
+        context.depth += 1
+        return context
     }
 }
 
@@ -38,7 +66,7 @@ internal struct ResolvedRow {
 
 /// Views that flatten into menu rows.
 internal protocol _RowConvertible {
-    func _appendRows(to rows: inout [ResolvedRow])
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext)
 }
 
 /// Views that represent a full screen of rows (`List`).
@@ -72,9 +100,10 @@ internal enum Resolver {
 
     /// Resolves a view to a full screen (title + rows) by walking `body`
     /// until a `List` is found.
-    static func resolveScreen(_ view: any View) -> ResolvedScreen {
+    static func resolveScreen(_ view: any View, storage: StateStorage = StateStorage()) -> ResolvedScreen {
         var title: String?
         var current: any View = view
+        var context = ResolveContext(storage: storage)
         for _ in 0 ..< maximumDepth {
             switch current {
             case let titled as _TitledView:
@@ -82,19 +111,23 @@ internal enum Resolver {
                 // closest to the navigation stack takes effect
                 if title == nil { title = titled._title }
                 current = titled._titledContent
+                context = context.descending("title")
             case let stack as _NavigationStackView:
                 current = stack._root
+                context = context.descending("root")
             case let list as _ListView:
                 var rows = [ResolvedRow]()
-                flattenRows(list._listContent, into: &rows)
+                flattenRows(list._listContent, into: &rows, context: context.descending("list"))
                 return ResolvedScreen(title: title, rows: rows)
             case let rowConvertible as _RowConvertible:
                 // A screen without a List (e.g. a lone Text) still renders
                 // as a menu of its rows.
                 var rows = [ResolvedRow]()
-                rowConvertible._appendRows(to: &rows)
+                rowConvertible._appendRows(to: &rows, context: context)
                 return ResolvedScreen(title: title, rows: rows)
             default:
+                context = context.descending("\(type(of: current))")
+                context.storage.install(in: current, path: context.path)
                 current = body(of: current)
             }
         }
@@ -104,19 +137,21 @@ internal enum Resolver {
 
     /// Flattens arbitrary view content into menu rows, evaluating the bodies
     /// of custom (non-primitive) views along the way.
-    static func flattenRows(_ view: any View, into rows: inout [ResolvedRow], depth: Int = 0) {
-        guard depth < maximumDepth else {
+    static func flattenRows(_ view: any View, into rows: inout [ResolvedRow], context: ResolveContext) {
+        guard context.depth < maximumDepth else {
             assertionFailure("View \(type(of: view)) exceeded maximum row resolution depth")
             return
         }
         switch view {
         case let rowConvertible as _RowConvertible:
-            rowConvertible._appendRows(to: &rows)
+            rowConvertible._appendRows(to: &rows, context: context)
         case let titled as _TitledView:
             // row-level navigationTitle has no effect on rows
-            flattenRows(titled._titledContent, into: &rows, depth: depth + 1)
+            flattenRows(titled._titledContent, into: &rows, context: context.descending("title"))
         default:
-            flattenRows(body(of: view), into: &rows, depth: depth + 1)
+            let child = context.descending("\(type(of: view))")
+            child.storage.install(in: view, path: child.path)
+            flattenRows(body(of: view), into: &rows, context: child)
         }
     }
 
@@ -129,7 +164,7 @@ internal enum Resolver {
         }
         if let rowConvertible = view as? _RowConvertible {
             var rows = [ResolvedRow]()
-            rowConvertible._appendRows(to: &rows)
+            rowConvertible._appendRows(to: &rows, context: ResolveContext())
             return rows.first?.text ?? ""
         }
         return primaryText(of: body(of: view), depth: depth + 1)
@@ -140,81 +175,103 @@ internal enum Resolver {
 
 extension Text: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
         rows.append(ResolvedRow(text: content, kind: .inert))
     }
 }
 
 extension Button: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
         rows.append(ResolvedRow(text: Resolver.primaryText(of: label), kind: .button(action)))
+    }
+}
+
+extension Toggle: _RowConvertible {
+
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        let isOn = self.isOn
+        rows.append(
+            ResolvedRow(
+                text: Resolver.primaryText(of: label),
+                kind: .button { isOn.wrappedValue.toggle() },
+                detail: isOn.wrappedValue ? "On" : "Off"
+            )
+        )
     }
 }
 
 extension NavigationLink: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
         rows.append(ResolvedRow(text: Resolver.primaryText(of: label), kind: .navigation(destination)))
     }
 }
 
 extension ForEach: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
-        for element in data {
-            Resolver.flattenRows(content(element), into: &rows, depth: 1)
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        for (offset, element) in data.enumerated() {
+            Resolver.flattenRows(content(element), into: &rows, context: context.descending("#\(offset)"))
         }
     }
 }
 
 extension TupleView: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
-        for child in Mirror(reflecting: value).children {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        let mirror = Mirror(reflecting: value)
+        // A TupleView of a single element is not a tuple; Mirror reports
+        // the element's stored properties instead, so handle it directly.
+        guard mirror.displayStyle == .tuple else {
+            if let view = value as? any View {
+                Resolver.flattenRows(view, into: &rows, context: context.descending("0"))
+            } else {
+                assertionFailure("TupleView value \(type(of: value)) is not a View")
+            }
+            return
+        }
+        for (offset, child) in mirror.children.enumerated() {
             guard let view = child.value as? any View else {
                 assertionFailure("TupleView element \(type(of: child.value)) is not a View")
                 continue
             }
-            Resolver.flattenRows(view, into: &rows, depth: 1)
-        }
-        // A TupleView of a single element is not a tuple; Mirror reports
-        // the element's stored properties instead, so handle it directly.
-        if Mirror(reflecting: value).displayStyle != .tuple, let view = value as? any View {
-            Resolver.flattenRows(view, into: &rows, depth: 1)
+            Resolver.flattenRows(view, into: &rows, context: context.descending("\(offset)"))
         }
     }
 }
 
 extension _ConditionalContent: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        // distinct path components so switching branches resets state,
+        // matching SwiftUI's structural identity
         switch storage {
         case .trueContent(let view):
-            Resolver.flattenRows(view, into: &rows, depth: 1)
+            Resolver.flattenRows(view, into: &rows, context: context.descending("true"))
         case .falseContent(let view):
-            Resolver.flattenRows(view, into: &rows, depth: 1)
+            Resolver.flattenRows(view, into: &rows, context: context.descending("false"))
         }
     }
 }
 
 extension Optional: _RowConvertible where Wrapped: View {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
         guard let view = self else { return }
-        Resolver.flattenRows(view, into: &rows, depth: 1)
+        Resolver.flattenRows(view, into: &rows, context: context.descending("some"))
     }
 }
 
 extension EmptyView: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) { }
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) { }
 }
 
 extension AnyView: _RowConvertible {
 
-    func _appendRows(to rows: inout [ResolvedRow]) {
-        Resolver.flattenRows(storage, into: &rows, depth: 1)
+    func _appendRows(to rows: inout [ResolvedRow], context: ResolveContext) {
+        Resolver.flattenRows(storage, into: &rows, context: context.descending("any"))
     }
 }
 

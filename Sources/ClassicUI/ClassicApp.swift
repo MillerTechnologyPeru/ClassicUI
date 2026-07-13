@@ -134,7 +134,7 @@ public final class ClassicApp {
     // MARK: - Rendering
 
     private func renderScreen(into screenRenderer: ClassicRenderer, texture: UnsafeMutablePointer<SDL_Texture>) {
-        let screen = Resolver.resolveScreen(navigation.top.view)
+        let screen = Resolver.resolveScreen(navigation.top.view, storage: navigation.top.stateStorage)
         navigation.clampSelection(rowCount: screen.rows.count, visibleRows: theme.visibleRows)
         screenRenderer.render(
             screen: screen,
@@ -189,14 +189,14 @@ public final class ClassicApp {
     private func handle(_ wheelEvent: ClickWheelEvent) {
         switch wheelEvent {
         case .scrollUp, .scrollDown:
-            let screen = Resolver.resolveScreen(navigation.top.view)
+            let screen = Resolver.resolveScreen(navigation.top.view, storage: navigation.top.stateStorage)
             navigation.moveSelection(
                 by: wheelEvent == .scrollDown ? 1 : -1,
                 rowCount: screen.rows.count,
                 visibleRows: theme.visibleRows
             )
         case .select:
-            let screen = Resolver.resolveScreen(navigation.top.view)
+            let screen = Resolver.resolveScreen(navigation.top.view, storage: navigation.top.stateStorage)
             let selection = navigation.top.selection
             guard screen.rows.indices.contains(selection) else { break }
             switch screen.rows[selection].kind {

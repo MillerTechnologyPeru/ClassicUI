@@ -170,7 +170,20 @@ internal final class ClassicRenderer {
 
         let textColor = isSelected ? theme.selectedText : theme.text
         let chevronSpace: CGFloat = row.isNavigation ? 14 : 0
-        let maxTextWidth = rect.width - CGFloat(theme.horizontalPadding) * 2 - chevronSpace
+        var maxTextWidth = rect.width - CGFloat(theme.horizontalPadding) * 2 - chevronSpace
+
+        // right-aligned value text (e.g. a Toggle's "On"/"Off")
+        if let detail = row.detail, !detail.isEmpty {
+            let detailWidth = font.singleLineWidth(text: detail, fontSize: theme.fontSize)
+            let detailX = rect.maxX - CGFloat(theme.horizontalPadding) - chevronSpace - detailWidth
+            drawText(
+                detail,
+                at: CGPoint(x: detailX, y: textTop(in: rect)),
+                color: isSelected ? theme.selectedText : theme.detailText
+            )
+            maxTextWidth -= detailWidth + 8
+        }
+
         let text = truncated(row.text, width: maxTextWidth)
         drawText(
             text,

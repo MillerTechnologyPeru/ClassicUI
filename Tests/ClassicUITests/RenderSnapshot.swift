@@ -48,5 +48,21 @@ import Testing
         let songs = Resolver.resolveScreen(Songs())
         renderer.render(screen: songs, selection: 14, scrollOffset: 8, isPlaying: false)
         renderer.surface.writePNG(atPath: directory + "/songs.png")
+
+        // settings screen with Toggle value text
+        struct Settings: View {
+            @State private var backlight = true
+            var body: some View {
+                List {
+                    NavigationLink("About") { Text("About") }
+                    Toggle("Shuffle", isOn: .constant(false))
+                    Toggle("Backlight", isOn: $backlight)
+                }
+                .navigationTitle("Settings")
+            }
+        }
+        let settings = Resolver.resolveScreen(Settings())
+        renderer.render(screen: settings, selection: 1, scrollOffset: 0, isPlaying: false)
+        renderer.surface.writePNG(atPath: directory + "/settings.png")
     }
 }

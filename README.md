@@ -42,8 +42,17 @@ try app.run()
 
 `View`, `@ViewBuilder` (including `if`/`else` and optionals), `List`
 (content and data-driven initializers), `NavigationStack`, `NavigationLink`,
-`Button`, `Text`, `ForEach` (`Identifiable`, `id:` key path, and ranges),
-`EmptyView`, `AnyView`, and `.navigationTitle(_:)`.
+`Button`, `Text`, `Toggle`, `ForEach` (`Identifiable`, `id:` key path, and
+ranges), `EmptyView`, `AnyView`, `.navigationTitle(_:)`, and state management
+with `@State` and `@Binding` (including `Binding.constant`, `init(get:set:)`,
+and key-path bindings via dynamic member lookup).
+
+`@State` matches SwiftUI semantics: views are value types rebuilt on every
+update, while state is persisted per screen keyed by the view's structural
+identity — switching an `if`/`else` branch resets state, sibling views of the
+same type keep independent state, and popping a screen discards its state.
+`Toggle` renders as an iPod settings row with a right-aligned "On"/"Off"
+value; the center button flips it.
 
 Navigation behaves like the real device: selecting a `NavigationLink` pushes
 its destination, the Menu button pops, and each screen's selection and scroll

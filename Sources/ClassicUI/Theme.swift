@@ -50,6 +50,9 @@ public struct Theme: Sendable {
     public var text: Color = .black
     public var selectedText: Color = .white
 
+    /// Right-aligned value text on settings-style rows (e.g. Toggle "On"/"Off").
+    public var detailText = Color(red: 0.45, green: 0.45, blue: 0.47)
+
     /// Selection bar vertical gradient (6g glossy blue).
     public var selectionGradientTop = Color(red: 0.42, green: 0.68, blue: 0.95)
     public var selectionGradientBottom = Color(red: 0.05, green: 0.35, blue: 0.85)
