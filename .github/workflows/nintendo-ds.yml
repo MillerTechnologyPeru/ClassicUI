@@ -1,0 +1,55 @@
+name: Nintendo DS
+on: [push]
+jobs:
+
+  nds:
+    name: Nintendo DS (build + upload ROM)
+    runs-on: macos-26
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # devkitPro's nds-dev group pulls in the ARM9/ARM7 cross-compiler,
+    # libnds/calico, and ndstool.
+    - name: Install devkitPro (nds-dev)
+      run: |
+        curl -L https://github.com/devkitPro/pacman/releases/latest/download/devkitpro-pacman-installer.pkg -o /tmp/devkitpro-pacman-installer.pkg
+        sudo installer -pkg /tmp/devkitpro-pacman-installer.pkg -target /
+        sudo dkp-pacman -Sy --noconfirm
+        sudo dkp-pacman -S --noconfirm nds-dev general-tools
+
+    # Armv5te-none-none-eabi Embedded stdlib support (matching this port's
+    # build target) is only in main-branch nightly snapshots; release
+    # toolchains only ship an armv4t slice. Snapshots are pruned, so resolve
+    # "latest" at run time instead of pinning a date (mirrors
+    # junkbot-swift's ports/NDS CI).
+    - name: Install Swift nightly toolchain
+      run: |
+        curl -sL https://download.swift.org/development/xcode/latest-build.yml -o /tmp/latest-build.yml
+        SNAPSHOT_DIR=$(awk -F': ' '/^dir:/{print $2}' /tmp/latest-build.yml)
+        SNAPSHOT_PKG=$(awk -F': ' '/^download:/{print $2}' /tmp/latest-build.yml)
+        curl -L "https://download.swift.org/development/xcode/${SNAPSHOT_DIR}/${SNAPSHOT_PKG}" -o /tmp/swift-toolchain.pkg
+        sudo installer -pkg /tmp/swift-toolchain.pkg -target /
+        TOOLCHAIN_DIR=$(ls -d /Library/Developer/Toolchains/swift-*.xctoolchain | head -1)
+        echo "SWIFTC=$TOOLCHAIN_DIR/usr/bin/swiftc" >> "$GITHUB_ENV"
+
+    # tools/gen_font.py rasterizes the UI font from the host's Helvetica at
+    # build time.
+    - name: Install Pillow
+      run: python3 -m pip install --break-system-packages pillow
+
+    - name: Build ClassicUI.nds
+      env:
+        DEVKITPRO: /opt/devkitpro
+        DEVKITARM: /opt/devkitpro/devkitARM
+      run: |
+        export PATH="$DEVKITPRO/tools/bin:$DEVKITARM/bin:$PATH"
+        make -C ports/NDS clean
+        make -C ports/NDS SWIFTC="$SWIFTC"
+
+    - name: Upload ROM
+      uses: actions/upload-artifact@v4
+      with:
+        name: classicui-nds
+        path: ports/NDS/ClassicUI.nds
+        if-no-files-found: error

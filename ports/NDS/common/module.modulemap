@@ -1,0 +1,5 @@
+// Exposes libnds (nds.h) plus our shim to Swift as `import NDS`.
+module NDS {
+    header "nds_umbrella.h"
+    export *
+}
