@@ -95,8 +95,6 @@
 			mainGroup = D00000000000000000000002;
 			packageReferences = (
 				D00000000000000000000050 /* XCLocalSwiftPackageReference "../.." */,
-				D00000000000000000000051 /* XCLocalSwiftPackageReference "../../Packages/Silica" */,
-				D00000000000000000000052 /* XCLocalSwiftPackageReference "../../Packages/Cairo" */,
 			);
 			productRefGroup = D00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -235,14 +233,6 @@
 		D00000000000000000000050 /* XCLocalSwiftPackageReference "../.." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../..";
-		};
-		D00000000000000000000051 /* XCLocalSwiftPackageReference "../../Packages/Silica" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../Packages/Silica";
-		};
-		D00000000000000000000052 /* XCLocalSwiftPackageReference "../../Packages/Cairo" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../Packages/Cairo";
 		};
 /* End XCLocalSwiftPackageReference section */
 
