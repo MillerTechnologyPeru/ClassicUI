@@ -1,0 +1,68 @@
+name: Swift
+on: [push]
+jobs:
+
+  macos:
+    name: macOS
+    runs-on: macos-26
+    strategy:
+      matrix:
+        config: ["debug"]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Swift Version
+      run: swift --version
+    - name: Install system libraries
+      run: brew install sdl3 cairo fontconfig
+    - name: Patch dependencies
+      run: sh Scripts/patch-dependencies.sh
+    - name: Build
+      run: swift build -c ${{ matrix.config }}
+    - name: Test
+      run: swift test -c ${{ matrix.config }}
+    - name: Run demo (headless)
+      run: SDL_VIDEO_DRIVER=dummy CLASSICUI_FRAME_LIMIT=30 swift run -c ${{ matrix.config }} ClassicUIDemo
+    - name: Build macOS app (SpriteKit, ports/Darwin)
+      run: |
+        xcodebuild -project ports/Darwin/ClassicUIDarwin.xcodeproj \
+          -scheme ClassicUIDarwin -configuration Debug \
+          -derivedDataPath /tmp/dd CODE_SIGNING_ALLOWED=NO build
+
+  linux:
+    name: Linux (${{ matrix.container }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container: ["swift:latest"]
+        config: ["debug"]
+    container: ${{ matrix.container }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Swift Version
+      run: swift --version
+    - name: Install system libraries
+      run: |
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          libcairo2-dev libfontconfig-dev libfreetype-dev fonts-dejavu-core \
+          pkg-config cmake ninja-build build-essential git ca-certificates
+    # SDL3 isn't packaged in this Ubuntu yet; build it from source (the
+    # dummy video driver needs no display libraries).
+    - name: Build SDL3 from source
+      run: |
+        git clone --depth 1 --branch release-3.4.12 https://github.com/libsdl-org/SDL.git /tmp/SDL
+        cmake -S /tmp/SDL -B /tmp/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake --build /tmp/sdl-build
+        cmake --install /tmp/sdl-build --prefix /usr/local
+        ldconfig
+    - name: Patch dependencies
+      run: sh Scripts/patch-dependencies.sh
+    - name: Build
+      run: swift build -c ${{ matrix.config }}
+    - name: Test
+      run: swift test -c ${{ matrix.config }}
+    - name: Run demo (headless)
+      run: SDL_VIDEO_DRIVER=dummy CLASSICUI_FRAME_LIMIT=30 swift run -c ${{ matrix.config }} ClassicUIDemo
