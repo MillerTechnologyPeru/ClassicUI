@@ -15,8 +15,6 @@ jobs:
       run: swift --version
     - name: Install system libraries
       run: brew install sdl3 cairo fontconfig
-    - name: Patch dependencies
-      run: sh Scripts/patch-dependencies.sh
     - name: Build
       run: swift build -c ${{ matrix.config }}
     # --no-parallel: Cairo/FontConfig font construction and teardown share
@@ -65,8 +63,6 @@ jobs:
         cmake --build /tmp/sdl-build
         cmake --install /tmp/sdl-build --prefix /usr/local
         ldconfig
-    - name: Patch dependencies
-      run: sh Scripts/patch-dependencies.sh
     - name: Build
       run: swift build -c ${{ matrix.config }}
     - name: Test
