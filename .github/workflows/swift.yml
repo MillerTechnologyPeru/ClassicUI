@@ -19,8 +19,11 @@ jobs:
       run: sh Scripts/patch-dependencies.sh
     - name: Build
       run: swift build -c ${{ matrix.config }}
+    # --no-parallel: Cairo/FontConfig font construction and teardown share
+    # global state that isn't thread-safe across concurrently running
+    # renderer-creating suites.
     - name: Test
-      run: swift test -c ${{ matrix.config }}
+      run: swift test -c ${{ matrix.config }} --no-parallel
     - name: Run demo (headless)
       run: SDL_VIDEO_DRIVER=dummy CLASSICUI_FRAME_LIMIT=30 swift run -c ${{ matrix.config }} ClassicUIDemo
     - name: Build macOS app (SpriteKit, ports/Darwin)
@@ -58,7 +61,7 @@ jobs:
         # dependencies) that trip SDL's configure, and CI only needs the
         # dummy video driver anyway.
         cmake -S /tmp/SDL -B /tmp/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-          -DSDL_X11=OFF -DSDL_WAYLAND=OFF
+          -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_UNIX_CONSOLE_BUILD=ON
         cmake --build /tmp/sdl-build
         cmake --install /tmp/sdl-build --prefix /usr/local
         ldconfig
@@ -67,6 +70,6 @@ jobs:
     - name: Build
       run: swift build -c ${{ matrix.config }}
     - name: Test
-      run: swift test -c ${{ matrix.config }}
+      run: swift test -c ${{ matrix.config }} --no-parallel
     - name: Run demo (headless)
       run: SDL_VIDEO_DRIVER=dummy CLASSICUI_FRAME_LIMIT=30 swift run -c ${{ matrix.config }} ClassicUIDemo
