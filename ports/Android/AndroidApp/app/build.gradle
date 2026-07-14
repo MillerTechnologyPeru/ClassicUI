@@ -1,0 +1,30 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'org.pureswift.classicui'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'org.pureswift.classicui'
+        // Matches the Swift build's android28 triple (ports/Android/Makefile API_LEVEL).
+        minSdk 28
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    sourceSets {
+        main {
+            // Populated by `make jnilibs` (the app .so + SDL prebuilt + Swift runtime).
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+dependencies {
+    // SDL's Java glue (SDLActivity & friends), extracted from the official SDL3 Android .aar
+    // by ports/Android/scripts/fetch-sdl.sh.
+    implementation files('../../Vendor/java/SDL3-android.jar')
+}

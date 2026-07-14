@@ -28,8 +28,20 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/PureSwift/Silica.git",
+            url: "https://github.com/PureSwift/Cairo.git",
             branch: "master"
+        ),
+        // Pinned to a specific revision rather than floating on "master":
+        // Silica's master branch split into a multi-backend architecture
+        // (CGContext became a protocol, with the concrete Cairo-backed
+        // type moved to a separate SilicaCairo library/target) after this
+        // revision, which breaks ClassicRenderer.swift's direct
+        // `Silica.CGContext(surface:size:)` construction. Floating deps
+        // otherwise silently re-resolve to a breaking upstream commit
+        // whenever this manifest changes for an unrelated reason.
+        .package(
+            url: "https://github.com/PureSwift/Silica.git",
+            revision: "fa20973dc7eb1dd90c2541943c05abbc5873e7f6"
         ),
         .package(
             url: "https://github.com/PureSwift/SDL.git",
@@ -38,11 +50,14 @@ let package = Package(
     ],
     targets: [
         // SwiftUI-subset view layer, resolver, navigation model and the
-        // Silica renderer — platform-agnostic, no SDL
+        // Silica renderer — platform-agnostic, no SDL. ClassicRenderer.swift
+        // draws directly against Cairo's CGContext-style API (not just
+        // Silica's), so Cairo needs to be declared here too.
         .target(
             name: "ClassicUICore",
             dependencies: [
-                "Silica"
+                "Silica",
+                "Cairo"
             ]
         ),
         // SDL3 presenter (window, event loop, click-wheel input)

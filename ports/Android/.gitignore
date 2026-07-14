@@ -1,0 +1,8 @@
+.build/
+Vendor/
+Sources/ClassicUIAndroid/FontAssets.swift
+AndroidApp/app/build/
+AndroidApp/app/src/main/jniLibs/
+AndroidApp/.gradle/
+AndroidApp/build/
+local.properties
