@@ -28,6 +28,10 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/PureSwift/Cairo.git",
+            branch: "master"
+        ),
+        .package(
             url: "https://github.com/PureSwift/Silica.git",
             branch: "master"
         ),
@@ -38,11 +42,14 @@ let package = Package(
     ],
     targets: [
         // SwiftUI-subset view layer, resolver, navigation model and the
-        // Silica renderer — platform-agnostic, no SDL
+        // Silica renderer — platform-agnostic, no SDL. ClassicRenderer.swift
+        // draws directly against Cairo's CGContext-style API (not just
+        // Silica's), so Cairo needs to be declared here too.
         .target(
             name: "ClassicUICore",
             dependencies: [
-                "Silica"
+                "Silica",
+                "Cairo"
             ]
         ),
         // SDL3 presenter (window, event loop, click-wheel input)
