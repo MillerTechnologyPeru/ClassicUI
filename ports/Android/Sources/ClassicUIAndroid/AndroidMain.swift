@@ -265,10 +265,13 @@ private func scroll(_ delta: Int32) {
   let top = navigator.top
   switch top.content {
   case .menu(let items):
-    navigator.moveSelection(by: delta, rowCount: Int32(items.count), visibleRows: visibleRows)
+    navigator.moveSelection(
+      by: delta, rowCount: Int32(items.count),
+      visibleRows: visibleRows(canvasHeight: screen.height))
   case .text(let text):
     let lineCount = textPageLineCount(text)
-    let maxOffset = lineCount > visibleTextLines ? lineCount - visibleTextLines : 0
+    let lines = visibleTextLines(canvasHeight: screen.height)
+    let maxOffset = lineCount > lines ? lineCount - lines : 0
     navigator.moveSelection(by: delta, rowCount: maxOffset + 1, visibleRows: 1)
   case .stack:
     break
@@ -356,21 +359,95 @@ private func handleTap(y: Float, windowHeight: Float) {
   }
 }
 
+// MARK: - Adaptive canvas sizing
+
+/// Extends the iPod's 320x240 baseline to match the device's actual pixel
+/// aspect ratio: the smaller dimension's scale factor wins, so that
+/// dimension exactly matches the baseline while the other grows to cover
+/// the full aspect (a taller screen shows more rows; a wider one shows
+/// wider rows) -- same principle as the desktop ClassicUICore renderer's
+/// adaptive layout. The result renders edge-to-edge with no letterbox
+/// bars, while metrics (row height, font size) stay at their native
+/// pixel size, so nothing is blurrily upscaled.
+private func canvasSize(forDrawablePixels width: Int32, _ height: Int32) -> (width: Int32, height: Int32) {
+  guard width > 0, height > 0 else { return (baseWidth, baseHeight) }
+  let scale = min(Float(width) / Float(baseWidth), Float(height) / Float(baseHeight))
+  guard scale > 0 else { return (baseWidth, baseHeight) }
+  return (
+    max(baseWidth, Int32(Float(width) / scale)),
+    max(baseHeight, Int32(Float(height) / scale))
+  )
+}
+
+/// (Re)allocates the canvas and transition buffers at the given size and
+/// recreates the streaming texture to match -- used at startup and again
+/// on every window/orientation resize.
+private func reallocate(
+  width: Int32, height: Int32, renderer: SDLRenderer
+) -> SDLTexture? {
+  screen?.pixels.deallocate()
+  outgoingBuffer?.deallocate()
+  presentBuffer?.deallocate()
+
+  canvasPixelCount = Int(width * height)
+  screen = Canvas(
+    pixels: UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount),
+    width: width, height: height)
+  outgoingBuffer = UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount)
+  presentBuffer = UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount)
+  // buffer sizes just changed; any in-flight slide would read stale data
+  slideProgress = -1
+  frameDirty = true
+
+  guard
+    let texture = try? SDLTexture(
+      renderer: renderer, format: .argb8888, access: .streaming,
+      width: Int(width), height: Int(height))
+  else {
+    return nil
+  }
+  try? texture.setScaleMode(.nearest)
+  return texture
+}
+
 // MARK: - SDL entry point
 
 @_cdecl("SDL_main")
 public func classicUIAndroidMain(
   _ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
 ) -> Int32 {
+  // Must match AndroidManifest.xml's android:screenOrientation="portrait".
+  // Without this, SDL requests its own default orientation set (which can
+  // include landscape) independently of the manifest; Android then
+  // fights the mismatch mid-session by tearing down and recreating the
+  // native surface at the manifest's enforced orientation, which briefly
+  // renders stale content from the old surface size before the next
+  // frame catches up. Setting this before SDL_Init avoids the conflict
+  // entirely by never requesting an orientation the manifest forbids.
+  _ = SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait")
+
   guard (try? SDL.initialize(subSystems: [.video, .gamepad])) != nil else {
     return 1
   }
   defer { SDL.quit() }
 
+  // Request the window at the real display's own size (not the 320x240
+  // baseline). On Android, SDL's Java glue treats the requested width/height
+  // as the window's logical size for its own internal coordinate/orientation
+  // bookkeeping, even though the activity is always fullscreen -- passing
+  // the 320x240 baseline here caused SDL to think the logical window was
+  // 320x240 while the real surface was the full device resolution, and the
+  // resulting mismatch between SDL's internal scaling and our own manual
+  // canvas-to-drawable scaling produced duplicated/ghosted content on
+  // screen. Sizing the request to the actual display bounds keeps SDL's
+  // internal notion of window size in sync with the real surface.
+  guard let displayBounds = try? SDLVideoDisplay.primary.bounds else {
+    return 1
+  }
   guard
     let window = try? SDLWindow(
       title: "ClassicUI",
-      frame: (x: .centered, y: .centered, width: Int(iPodWidth), height: Int(iPodHeight)),
+      frame: (x: .centered, y: .centered, width: Int(displayBounds.width), height: Int(displayBounds.height)),
       options: [.resizable, .highPixelDensity]
     ),
     let renderer = try? SDLRenderer(window: window)
@@ -378,27 +455,21 @@ public func classicUIAndroidMain(
     return 1
   }
 
-  try? renderer.setLogicalSize(width: iPodWidth, height: iPodHeight, presentation: .letterbox)
-
-  guard
-    let texture = try? SDLTexture(
-      renderer: renderer, format: .argb8888, access: .streaming,
-      width: Int(iPodWidth), height: Int(iPodHeight))
-  else {
+  // no setLogicalSize / letterbox: the canvas itself is sized to match
+  // the drawable's aspect ratio (see canvasSize(forDrawablePixels:_:)),
+  // so the texture already fills the full render target edge-to-edge.
+  var drawableSize = window.drawableSize
+  var (canvasWidth, canvasHeight) = canvasSize(
+    forDrawablePixels: Int32(drawableSize.width), Int32(drawableSize.height))
+  guard var texture = reallocate(width: canvasWidth, height: canvasHeight, renderer: renderer) else {
     return 1
   }
-  try? texture.setScaleMode(.nearest)
-
-  canvasPixelCount = Int(iPodWidth * iPodHeight)
-  screen = Canvas(
-    pixels: UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount),
-    width: iPodWidth, height: iPodHeight)
-  outgoingBuffer = UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount)
-  presentBuffer = UnsafeMutablePointer<UInt32>.allocate(capacity: canvasPixelCount)
 
   var gamepads = [JoystickID: SDLGamepad]()
   var running = true
-  var windowHeightPixels: Float = Float(iPodHeight)
+  // Touch/mouse coordinates arrive in window points, not drawable pixels
+  // (they can differ on high-density displays) -- track points here.
+  var windowHeightPoints: Float = Float(window.size.height)
 
   while running {
     while let event = SDL.pollEvent() {
@@ -415,8 +486,16 @@ public func classicUIAndroidMain(
         handleButton(button)
       case .mouseButtonDown(_, _, let y, _):
         // SDL surfaces Android touches as the primary mouse button
-        windowHeightPixels = Float(window.drawableSize.height)
-        handleTap(y: y, windowHeight: windowHeightPixels)
+        windowHeightPoints = Float(window.size.height)
+        handleTap(y: y, windowHeight: windowHeightPoints)
+      case .windowResized(_, _, _):
+        drawableSize = window.drawableSize
+        windowHeightPoints = Float(window.size.height)
+        (canvasWidth, canvasHeight) = canvasSize(
+          forDrawablePixels: Int32(drawableSize.width), Int32(drawableSize.height))
+        if let newTexture = reallocate(width: canvasWidth, height: canvasHeight, renderer: renderer) {
+          texture = newTexture
+        }
       default:
         break
       }
@@ -439,7 +518,7 @@ public func classicUIAndroidMain(
       if slideProgress >= 0 {
         compositeSlide(
           present: presentBuffer, outgoing: outgoingBuffer, incoming: screen.pixels,
-          width: iPodWidth, height: iPodHeight, p64: slideProgress, push: slidePush)
+          width: canvasWidth, height: canvasHeight, p64: slideProgress, push: slidePush)
       } else {
         var i = 0
         while i < canvasPixelCount {
@@ -447,12 +526,24 @@ public func classicUIAndroidMain(
           i += 1
         }
       }
-      try? texture.update(pixels: UnsafeMutableRawPointer(presentBuffer), pitch: Int(iPodWidth) * 4)
+      try? texture.update(pixels: UnsafeMutableRawPointer(presentBuffer), pitch: Int(canvasWidth) * 4)
     }
 
     try? renderer.setDrawColor(red: 0, green: 0, blue: 0)
     try? renderer.clear()
-    try? renderer.copy(texture, angle: 0)
+    // Explicit full-output destination rather than relying on nil
+    // defaulting to "whole render target": during a resize/orientation
+    // transition the render target's actual current size can transiently
+    // disagree with what a nil destination stretches to, leaving stale
+    // pixels from a previous, differently-sized frame visible below the
+    // freshly drawn content. Querying the output size fresh every frame
+    // and passing it explicitly closes that gap.
+    if let output = renderer.outputSize {
+      let destination = SDL_FRect(x: 0, y: 0, w: Float(output.width), h: Float(output.height))
+      try? renderer.copy(texture, destination: destination)
+    } else {
+      try? renderer.copy(texture, angle: 0)
+    }
     renderer.present()
 
     SDL.delay(nanoseconds: 16_000_000)

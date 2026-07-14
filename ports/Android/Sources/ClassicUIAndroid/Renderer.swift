@@ -67,10 +67,22 @@ let statusBarHeight: Int32 = 20
 let rowHeight: Int32 = 24
 let textLineHeight: Int32 = 17
 let horizontalPadding: Int32 = 6
-let iPodWidth: Int32 = 320
-let iPodHeight: Int32 = 240
-let visibleRows: Int32 = (iPodHeight - statusBarHeight) / rowHeight
-let visibleTextLines: Int32 = (iPodHeight - statusBarHeight - 2) / textLineHeight
+
+/// The real iPod Classic screen -- the MINIMUM canvas size, not a fixed
+/// one. AndroidMain.swift extends this baseline to match the device's
+/// actual aspect ratio (same adaptive-layout principle as the desktop
+/// ClassicUICore renderer), so content fills the full screen with no
+/// letterboxing: a taller canvas simply shows more rows.
+let baseWidth: Int32 = 320
+let baseHeight: Int32 = 240
+
+func visibleRows(canvasHeight: Int32) -> Int32 {
+  max(1, (canvasHeight - statusBarHeight) / rowHeight)
+}
+
+func visibleTextLines(canvasHeight: Int32) -> Int32 {
+  max(1, (canvasHeight - statusBarHeight - 2) / textLineHeight)
+}
 
 // MARK: - Primitives
 
@@ -341,11 +353,12 @@ func renderScreen(_ canvas: Canvas, screen: Screen, playing: Bool) {
 
 private func renderMenu(_ canvas: Canvas, screen: Screen, items: [MenuItem]) {
   let count = Int32(items.count)
-  let showsScrollBar = count > visibleRows
+  let rows = visibleRows(canvasHeight: canvas.height)
+  let showsScrollBar = count > rows
   let rowWidth = showsScrollBar ? canvas.width - 8 : canvas.width
 
   var slot: Int32 = 0
-  while slot < visibleRows, screen.scrollOffset &+ slot < count {
+  while slot < rows, screen.scrollOffset &+ slot < count {
     let index = screen.scrollOffset &+ slot
     let item = items[Int(index)]
     let y = statusBarHeight &+ slot &* rowHeight
@@ -384,7 +397,7 @@ private func renderMenu(_ canvas: Canvas, screen: Screen, items: [MenuItem]) {
   }
 
   if showsScrollBar {
-    drawScrollBar(canvas, rowCount: count, visibleCount: visibleRows, scrollOffset: screen.scrollOffset)
+    drawScrollBar(canvas, rowCount: count, visibleCount: rows, scrollOffset: screen.scrollOffset)
   }
 }
 
@@ -504,8 +517,9 @@ func renderTextPage(_ canvas: Canvas, text: StaticString, topLine: Int32) -> Int
     }
 
     let lineCount = Int32(lineStarts.count)
+    let lines = visibleTextLines(canvasHeight: canvas.height)
     var slot: Int32 = 0
-    while slot < visibleTextLines, topLine &+ slot < lineCount {
+    while slot < lines, topLine &+ slot < lineCount {
       let line = Int(topLine &+ slot)
       let y = statusBarHeight &+ 2 &+ slot &* textLineHeight
       _ = drawBytes(
@@ -514,9 +528,9 @@ func renderTextPage(_ canvas: Canvas, text: StaticString, topLine: Int32) -> Int
       slot &+= 1
     }
 
-    if lineCount > visibleTextLines {
+    if lineCount > lines {
       drawScrollBar(
-        canvas, rowCount: lineCount, visibleCount: visibleTextLines, scrollOffset: topLine)
+        canvas, rowCount: lineCount, visibleCount: lines, scrollOffset: topLine)
     }
     return lineCount
   }
