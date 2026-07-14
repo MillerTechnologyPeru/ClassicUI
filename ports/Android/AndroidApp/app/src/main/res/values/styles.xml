@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- No action bar, no status/nav bar chrome, content drawn edge-to-edge (including under
+         display cutouts) - MainActivity's immersive-sticky flags (set in onWindowFocusChanged)
+         then hide the status/nav bars themselves once the window is focused. -->
+    <style name="Theme.ClassicUI" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>
